@@ -1,0 +1,128 @@
+/*
+Cathy Fung
+CSCI 4250 HW1
+21 September 2019
+*/
+
+#include <iostream>
+using namespace std;
+
+#define iceil(num,den) (num+den-1)/den
+
+// Kernel Function
+__global__ void imgMulKernel(float* d_img_in, float* d_img_out, float* d_filter, int w, int h) {
+
+	// Access the pixel on the image
+	int col = blockDim.x * blockIdx.x + threadIdx.x;
+	int row = blockDim.y * blockIdx.y + threadIdx.y;
+	int bd = blockDim.x;
+	int gid = threadIdx.y * blockDim.x + threadIdx.x;
+	int sum = 0;
+
+	// Check if the index is in the image 
+	if ((0 < col && col < (w - 1)) && (0 < row && row < (h - 1))) {
+		sum += d_img_in[gid - bd -1] * d_filter[0];
+		sum += d_img_in[gid - bd] * d_filter[1];
+		sum += d_img_in[gid - bd + 1] * d_filter[2];
+		sum += d_img_in[gid - 1] * d_filter[3];
+		sum += d_img_in[gid] * d_filter[4];
+		sum += d_img_in[gid + 1] * d_filter[5];
+		sum += d_img_in[gid + bd - 1] * d_filter[6];
+		sum += d_img_in[gid + bd] * d_filter[7];
+		sum += d_img_in[gid + bd + 1] * d_filter[8];
+		d_img_out[row*w + col] = sum / 9;
+	}
+}
+
+void imgMul(float*img_in, float* img_out, int w, int h, float* filter, int filterW, int filterH) {
+
+	// This number of bytes are going be allocated and transferred
+	int size = w * h * sizeof(float);
+	int filterSize = filterW * filterH * sizeof(float);
+
+	float *d_img_in, *d_img_out, *d_filter;
+
+	// Allocate memory from GPU for my input and output array
+	cudaMalloc((void**)&d_img_in, size);
+	cudaMalloc((void**)&d_img_out, size);
+	cudaMalloc((void**)&d_filter, filterSize);
+
+	// Transfer data to the GPU
+	cudaMemcpy(d_img_in, img_in, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_filter, filter, filterSize, cudaMemcpyHostToDevice);
+
+	dim3 myBlockDim(16, 16, 1);
+	dim3 myGridDim(iceil(w, 16), iceil(h, 16), 1);
+	// Kernel Launch
+	imgMulKernel << <myGridDim, myBlockDim >> > (d_img_in, d_img_out, d_filter, w, h);
+
+	// Transfer results back to CPU
+	cudaMemcpy(img_out, d_img_out, size, cudaMemcpyDeviceToHost);
+
+	cudaFree(d_img_in);
+	cudaFree(d_img_out);
+	cudaFree(d_filter);
+}
+
+//Prints the image on screen
+void printImage(float* img, int w, int h) {
+	for (int i = 0; i < h; i++) {
+		for (int j = 0; j < w; j++) {
+			cout << img[i*w + j] << " ";
+		}
+		cout << endl;
+	}
+	cout << endl;
+}
+
+int main() {
+
+	int w = 30, h = 20;
+	const int filterW = 3, filterH = 3;
+	float *img_in = new float[w*h];
+	float *img_out = new float[w*h];
+	float *filter = new float[filterH*filterW]{	
+		2, 1, 1, 
+		1, 2, 1, 
+		1, 1, 2 };
+
+	/*
+	// I tried to make a 2d arry and put it as a 1d array
+	// But it doesn't seem working
+	float *filterIn = new float[filterW*filterH];
+	float **filter = new float*[filterH];
+	for (int i = 0; i < filterH; i++) {
+		filter[i] = new float[filterW];
+	}
+	filter[0][0] = 1;
+	filter[1][0] = 1;
+	filter[2][0] = 1;
+	filter[0][1] = 1;
+	filter[1][1] = 1;
+	filter[2][1] = 1;
+	filter[0][2] = 1;
+	filter[1][2] = 1;
+	filter[2][2] = 1;
+
+	// Load the 2D filter to be 1D array
+	for (int a = 0; a < filterW; a++) {
+		for (int b = 0; b < filterH; b++) {
+			filterIn[a* filterW + b] = filter[a][b];
+		}
+	}
+	*/
+
+
+	// Load value to the image
+	for (int i = 0; i < h; i++)
+		for (int j = 0; j < w; j++)
+			img_in[i*w + j] = 12; //img_in[i][j] = i;
+
+	printImage(img_in, w, h);
+
+	imgMul(img_in, img_out, w, h, filter, filterW, filterH);
+
+	printImage(img_out, w, h);
+
+	return 0;
+}
